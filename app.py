@@ -34,7 +34,7 @@ if "is_unlocked" not in st.session_state:
     st.session_state.is_unlocked = False
 
 
-# ─── ページ1: パスワード登録画面（日数指定を追加） ───
+# ─── ページ1: パスワード登録画面 ───
 def register_page():
     st.title("📝 パスワードの登録")
     st.write("サービス名、パスワード、および有効期限を設定してください。")
@@ -44,12 +44,9 @@ def register_page():
         password = st.text_input("パスワード", type="password")
         
         st.markdown("---")
-        st.write("📅 **有効期限の設定**（どちらか地好みの方法で入力してください）")
+        st.write("📅 **有効期限の設定**")
         
-        # 改良ポイント: 「何日後」を数字で指定できる入力欄（デフォルトは90日後）
         days_offset = st.number_input("① 今日から何日後にしますか？", min_value=0, value=90, step=1)
-        
-        # カレンダー形式の入力欄（上の日数入力と連動して自動で日付が計算されます）
         calculated_date = date.today() + timedelta(days=days_offset)
         expiry_date = st.date_input("② または、カレンダーから直接選ぶ", value=calculated_date)
         
@@ -58,7 +55,6 @@ def register_page():
 
     if submit_button:
         if service_name and password:
-            # 日付を保存可能な文字列型（YYYY-MM-DD）に変換して保存
             new_data = {
                 "サービス名": service_name, 
                 "パスワード": password,
@@ -66,12 +62,12 @@ def register_page():
             }
             st.session_state.password_list.append(new_data)
             save_passwords(st.session_state.password_list)
-            st.success(f"🎉 {service_name} のパスワード（期限: {expiry_date}）を保存しました！")
+            st.success(f"🎉 {service_name} のパスワードを保存しました！")
         else:
             st.warning("⚠️ サービス名とパスワードの両方を入力してください。")
 
 
-# ─── ページ2: パスワード一覧画面 ───
+# ─── ページ2: パスワード一覧画面（削除機能付き） ───
 def list_page():
     st.title("📋 登録済みパスワード一覧")
     
@@ -95,6 +91,7 @@ def list_page():
         
     st.markdown("---")
 
+    # ファイルから最新データを読み込み
     st.session_state.password_list = load_passwords()
 
     if st.session_state.password_list:
@@ -104,13 +101,12 @@ def list_page():
         for item in st.session_state.password_list:
             expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
             expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-            
             days_left = (expiry_date - today).days
             
             if days_left < 0:
-                status = "⚠️ 期限切れ！変更してください"
+                status = "⚠️ 期限切れ！"
             elif days_left <= 30:
-                status = f"⏳ あと {days_left} 日で期限切れ"
+                status = f"⏳ あと {days_left} 日"
             else:
                 status = "✅ 安全（期限内）"
             
@@ -123,15 +119,44 @@ def list_page():
             
         df = pd.DataFrame(processed_list)
         
-        st.dataframe(
+        st.write("💡 削除したいデータの**左端にチェック**を入れて、下の「選択したデータを削除」ボタンを押してください。")
+        
+        # 【新機能】選択（チェックボックス）が可能なテーブルを表示
+        # selection_mode="multi" にすることで複数選択も可能になります
+        event = st.dataframe(
             df,
             column_config={
                 "パスワード": st.column_config.TextColumn("パスワード"),
                 "状態": st.column_config.TextColumn("状態")
             },
             hide_index=True,
-            use_container_width=True
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="multi"
         )
+        
+        # 選択された行のインデックス（番号）を取得
+        selected_rows = event.selection.rows
+        
+        if selected_rows:
+            # 選択されたサービス名をリストアップして画面に表示
+            selected_services = [df.iloc[r]["サービス名"] for r in selected_rows]
+            st.write(f"選択中: `{', '.join(selected_services)}`")
+            
+            # 🔴 削除ボタンの出現
+            if st.button("🗑️ 選択したデータを削除", type="primary"):
+                # 選択されていないデータだけを残す（＝選択されたものを消す）
+                new_password_list = [
+                    item for i, item in enumerate(st.session_state.password_list) if i not in selected_rows
+                ]
+                
+                # データを更新してファイルに保存
+                st.session_state.password_list = new_password_list
+                save_passwords(new_password_list)
+                
+                st.success("💥 選択されたパスワードを削除しました！")
+                st.rerun()  # 画面を更新して消えた状態にする
+                
     else:
         st.info("まだ登録されたパスワードはありません。")
 
