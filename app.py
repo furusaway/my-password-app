@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 # ページ全体の初期設定
 st.set_page_config(page_title="🔐 パスワード管理アプリ", page_icon="🔐", layout="centered")
@@ -34,7 +34,7 @@ if "is_unlocked" not in st.session_state:
     st.session_state.is_unlocked = False
 
 
-# ─── ページ1: パスワード登録画面（有効期限の入力追加） ───
+# ─── ページ1: パスワード登録画面（日数指定を追加） ───
 def register_page():
     st.title("📝 パスワードの登録")
     st.write("サービス名、パスワード、および有効期限を設定してください。")
@@ -43,9 +43,17 @@ def register_page():
         service_name = st.text_input("サービス名（例: Google, Twitter）")
         password = st.text_input("パスワード", type="password")
         
-        # 有効期限の入力欄（デフォルトは本日の日付）
-        expiry_date = st.date_input("パスワードの有効期限", value=date.today())
+        st.markdown("---")
+        st.write("📅 **有効期限の設定**（どちらか地好みの方法で入力してください）")
         
+        # 改良ポイント: 「何日後」を数字で指定できる入力欄（デフォルトは90日後）
+        days_offset = st.number_input("① 今日から何日後にしますか？", min_value=0, value=90, step=1)
+        
+        # カレンダー形式の入力欄（上の日数入力と連動して自動で日付が計算されます）
+        calculated_date = date.today() + timedelta(days=days_offset)
+        expiry_date = st.date_input("② または、カレンダーから直接選ぶ", value=calculated_date)
+        
+        st.markdown("---")
         submit_button = st.form_submit_button(label="保存する")
 
     if submit_button:
@@ -63,7 +71,7 @@ def register_page():
             st.warning("⚠️ サービス名とパスワードの両方を入力してください。")
 
 
-# ─── ページ2: パスワード一覧画面（期限切れアラート機能付き） ───
+# ─── ページ2: パスワード一覧画面 ───
 def list_page():
     st.title("📋 登録済みパスワード一覧")
     
@@ -90,7 +98,6 @@ def list_page():
     st.session_state.password_list = load_passwords()
 
     if st.session_state.password_list:
-        # 画面表示用のデータを作成（期限チェックを行う）
         processed_list = []
         today = date.today()
         
@@ -98,10 +105,8 @@ def list_page():
             expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
             expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
             
-            # 残り日数の計算
             days_left = (expiry_date - today).days
             
-            # ステータスの判定
             if days_left < 0:
                 status = "⚠️ 期限切れ！変更してください"
             elif days_left <= 30:
@@ -118,7 +123,6 @@ def list_page():
             
         df = pd.DataFrame(processed_list)
         
-        # 状態がパッと見てわかりやすいように一覧を表示
         st.dataframe(
             df,
             column_config={
