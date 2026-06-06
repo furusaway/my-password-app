@@ -4,8 +4,7 @@ import pandas as pd
 # ページ全体の初期設定
 st.set_page_config(page_title="🔐 パスワード管理アプリ", page_icon="🔐", layout="centered")
 
-# 1. データを保存するデータ箱（セッション状態）の準備
-# ページを切り替えても、このデータ箱の中身は維持されます
+# データを保存するデータ箱（セッション状態）の準備
 if "password_list" not in st.session_state:
     st.session_state.password_list = []
 
@@ -24,35 +23,42 @@ def register_page():
         if service_name and password:
             new_data = {"サービス名": service_name, "パスワード": password}
             st.session_state.password_list.append(new_data)
-            st.success(f"🎉 {service_name} のパスワードを登録しました！「一覧画面」で確認できます。")
+            st.success(f"🎉 {service_name} のパスワードを登録しました！「パスワード一覧」ページで確認できます。")
         else:
             st.warning("⚠️ サービス名とパスワードの両方を入力してください。")
 
 
-# ─── ページ2: パスワード一覧画面 ───
+# ─── ページ2: パスワード一覧画面（シンプル＆安全版） ───
 def list_page():
     st.title("📋 登録済みパスワード一覧")
-    st.write("これまでに登録されたパスワードの確認・管理ができます。")
     
     if st.session_state.password_list:
-        # 表（データフレーム）として表示
         df = pd.DataFrame(st.session_state.password_list)
-        st.dataframe(df, use_container_width=True)
         
-        # パスワードを隠しテキストで確認するエリア
-        with st.expander("👁️ パスワードを文字で確認する"):
-            for item in st.session_state.password_list:
-                st.text(f"【{item['サービス名']}】: {item['パスワード']}")
+        # Streamlitの機能で、パスワード列を最初から「伏せ字（●●●）」にして表示します
+        # ユーザーが表の中のパスワードにマウスを乗せると、目のアイコンが出てきて中身を確認・コピーできます
+        st.dataframe(
+            df,
+            column_config={
+                "パスワード": st.column_config.TextColumn(
+                    "パスワード",
+                    help="マウスを乗せると右側に目のアイコンが表示され、クリックで確認・コピーができます"
+                )
+            },
+            hide_index=True,          # 左端の余計な行番号（0, 1, 2...）を非表示にしてスッキリ
+            use_container_width=True
+        )
+        
+        st.caption("🔒 セキュリティのため、パスワードは隠されています。確認したいセルを触ってください。")
+        
     else:
         st.info("まだ登録されたパスワードはありません。「登録画面」から追加してください。")
 
 
-# ─── 2. ページナビゲーションの設定 ───
-# 左側のサイドバーにメニューが表示され、クリックで切り替えられるようになります
+# ─── ページナビゲーションの設定 ───
 pg = st.navigation([
     st.Page(register_page, title="パスワード登録", icon="📝"),
     st.Page(list_page, title="パスワード一覧", icon="📋")
 ])
 
-# 選択されたページを実行（表示）する
 pg.run()
