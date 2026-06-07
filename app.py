@@ -104,9 +104,10 @@ if "is_unlocked" not in st.session_state:
 if "editing_index" not in st.session_state:
     st.session_state.editing_index = None
 
-# 各行の目隠し状態を管理する辞書を初期化
-if "show_status" not in st.session_state:
-    st.session_state.show_status = {}
+# 現在パスワードを表示している行のインデックスを保存するセット
+if "visible_rows" not in st.session_state:
+    st.session_state.visible_rows = set()
+
 
 # アプリ起動時に期限チェック（LINE通知）を実行
 check_and_notify_expiry()
@@ -181,7 +182,40 @@ def list_page():
     st.session_state.password_list = load_passwords()
 
     if st.session_state.password_list:
+        processed_list = []
         today = date.today()
+
+        for i, item in enumerate(st.session_state.password_list):
+            expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
+            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+            days_left = (expiry_date - today).days
+
+            if days_left < 0:
+                status = "⚠️ 期限切れ！"
+            elif days_left <= 10:
+                status = f"🚨 あと {days_left} 日 (10日以内)"
+            elif days_left <= 30:
+                status = f"⏳ あと {days_left} 日"
+            else:
+                status = "✅ 安全（期限内）"
+
+            # 💡 個別表示が有効な行だけ本物を表示、それ以外は目隠し
+            display_password = (
+                item["パスワード"]
+                if i in st.session_state.visible_rows
+                else "********"
+            )
+
+            processed_list.append(
+                {
+                    "サービス名": item["サービス名"],
+                    "パスワード": display_password,
+                    "有効期限": expiry_str,
+                    "状態": status,
+                }
+            )
+
+        df = pd.DataFrame(processed_list)
 
         # ─── ✍️ 編集フォームの表示 ───
         if st.session_state.editing_index is not None:
@@ -227,87 +261,69 @@ def list_page():
 
             st.markdown("---")
 
-        # ─── 🔑 カスタムリスト表示（目のマーク付き） ───
-        st.write("💡 右端のボタンで各操作が行えます。")
-
-        # ヘッダー部分の作成
-        h_col1, h_col2, h_col3, h_col4, h_col5 = st.columns(
-            [2, 3, 1, 2, 2]
+        # ─── 一覧データテーブル ───
+        st.write(
+            "💡 **データの変更・削除・表示:** 左端のチェックを入れて、下の各ボタンを押してください。"
         )
-        h_col1.markdown("**サービス名**")
-        h_col2.markdown("**パスワード**")
-        h_col3.markdown("")  # 目のマーク用スペース
-        h_col4.markdown("**状態 / 有効期限**")
-        h_col5.markdown("**操作**")
-        st.markdown("---")
 
-        # 各行のデータをループ処理
-        for i, item in enumerate(st.session_state.password_list):
-            expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
-            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-            days_left = (expiry_date - today).days
+        event = st.dataframe(
+            df,
+            column_config={
+                "パスワード": st.column_config.TextColumn("パスワード"),
+                "状態": st.column_config.TextColumn("状態"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+        )
 
-            if days_left < 0:
-                status = "⚠️ 期限切れ"
-            elif days_left <= 10:
-                status = f"🚨 残り {days_left} 日"
-            elif days_left <= 30:
-                status = f"⏳ 残り {days_left} 日"
-            else:
-                status = "✅ 安全"
+        selected_rows = event.selection.rows
 
-            # 表示・非表示の状態を管理
-            if i not in st.session_state.show_status:
-                st.session_state.show_status[i] = False
+        if selected_rows:
+            selected_services = [
+                df.iloc[r]["サービス名"] for r in selected_rows
+            ]
+            st.write(f"選択中: `{', '.join(selected_services)}`")
 
-            display_pwd = (
-                item["パスワード"]
-                if st.session_state.show_status[i]
-                else "********"
-            )
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
 
-            # 行の構築
-            row_col1, row_col2, row_col3, row_col4, row_col5 = st.columns(
-                [2, 3, 1, 2, 2]
-            )
+            # 👁️ 【追加】選択した行の目隠しを切り替えるボタン
+            with col_btn1:
+                if st.button("👁️ 選択したパスワードを表示/隠す"):
+                    for r in selected_rows:
+                        if r in st.session_state.visible_rows:
+                            st.session_state.visible_rows.remove(r)
+                        else:
+                            st.session_state.visible_rows.add(r)
+                    st.rerun()
 
-            # 1. サービス名
-            row_col1.write(item["サービス名"])
+            # 変更ボタン
+            with col_btn2:
+                if len(selected_rows) == 1:
+                    if st.button("✍️ 選択したデータを変更"):
+                        st.session_state.editing_index = selected_rows[0]
+                        st.rerun()
+                else:
+                    st.caption("※「変更」は1つ選択時のみ可")
 
-            # 2. パスワードテキスト
-            row_col2.code(display_pwd, language="")
-
-            # 3. 👁️ 目のマークボタン（トグル）
-            eye_icon = (
-                "🙈" if st.session_state.show_status[i] else "👁️"
-            )
-            if row_col3.button(eye_icon, key=f"eye_{i}"):
-                st.session_state.show_status[i] = (
-                    not st.session_state.show_status[i]
-                )
-                st.rerun()
-
-            # 4. 状態と期限
-            row_col4.write(f"{status}\n({expiry_str})")
-
-            # 5. 変更・削除ボタン
-            btn_col1, btn_col2 = row_col5.columns(2)
-            if btn_col1.button("✍️", key=f"edit_btn_{i}", help="変更"):
-                st.session_state.editing_index = i
-                st.rerun()
-
-            if btn_col2.button(
-                "🗑️", key=f"del_btn_{i}", type="primary", help="削除"
-            ):
-                del st.session_state.password_list[i]
-                save_passwords(st.session_state.password_list)
-                st.success("削除しました")
-                st.rerun()
-
-            st.markdown(
-                "<hr style='margin:0.5rem 0; opacity:0.3;'>",
-                unsafe_allow_code=True,
-            )
+            # 削除ボタン
+            with col_btn3:
+                if st.button("🗑️ 選択したデータを削除", type="primary"):
+                    new_password_list = [
+                        item
+                        for i, item in enumerate(
+                            st.session_state.password_list
+                        )
+                        if i not in selected_rows
+                    ]
+                    st.session_state.password_list = new_password_list
+                    save_passwords(new_password_list)
+                    st.success("💥 選択されたパスワードを削除しました！")
+                    st.session_state.editing_index = None
+                    # 削除されたデータの表示フラグもリセット
+                    st.session_state.visible_rows = set()
+                    st.rerun()
 
     else:
         st.info("まだ登録されたパスワードはありません。")
