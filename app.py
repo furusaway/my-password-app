@@ -1,7 +1,6 @@
 import json
 import os
 from datetime import date, datetime, timedelta
-import pandas as pd
 import requests
 import streamlit as st
 
@@ -14,7 +13,7 @@ st.set_page_config(
 MASTER_PASSWORD = "1234"
 SAVE_FILE = "passwords_data.json"
 
-# LINE Messaging API設定（取得した値をここに入力してください）
+# LINE Messaging API設定
 LINE_CHANNEL_ACCESS_TOKEN = "YOUR_CHANNEL_ACCESS_TOKEN"
 LINE_USER_ID = "YOUR_USER_ID"
 
@@ -104,9 +103,9 @@ if "is_unlocked" not in st.session_state:
 if "editing_index" not in st.session_state:
     st.session_state.editing_index = None
 
-# 各行の表示状態を管理するセット
-if "visible_rows" not in st.session_state:
-    st.session_state.visible_rows = set()
+# 各行の選択状態（チェックボックス）を管理する辞書
+if "selected_rows" not in st.session_state:
+    st.session_state.selected_rows = {}
 
 # アプリ起動時に期限チェック（LINE通知）を実行
 check_and_notify_expiry()
@@ -181,44 +180,7 @@ def list_page():
     st.session_state.password_list = load_passwords()
 
     if st.session_state.password_list:
-        processed_list = []
         today = date.today()
-
-        for i, item in enumerate(st.session_state.password_list):
-            expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
-            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-            days_left = (expiry_date - today).days
-
-            if days_left < 0:
-                status = "⚠️ 期限切れ！"
-            elif days_left <= 10:
-                status = f"🚨 あと {days_left} 日 (10日以内)"
-            elif days_left <= 30:
-                status = f"⏳ あと {days_left} 日"
-            else:
-                status = "✅ 安全（期限内）"
-
-            # 表示フラグの有無で目隠しを切り替え
-            display_password = (
-                item["パスワード"]
-                if i in st.session_state.visible_rows
-                else "********"
-            )
-            eye_icon = (
-                "🙈 隠す" if i in st.session_state.visible_rows else "👁️ 表示"
-            )
-
-            processed_list.append(
-                {
-                    "サービス名": item["サービス名"],
-                    "パスワード": display_password,
-                    " 目のマーク ": eye_icon,  # パスワードのすぐ右隣に配置
-                    "有効期限": expiry_str,
-                    "状態": status,
-                }
-            )
-
-        df = pd.DataFrame(processed_list)
 
         # ─── ✍️ 編集フォームの表示 ───
         if st.session_state.editing_index is not None:
@@ -264,74 +226,112 @@ def list_page():
 
             st.markdown("---")
 
-        # ─── 一覧データテーブル ───
+        # ─── 🔓 画像通りの👁️トグル付きグリッドUI ───
         st.write(
-            "💡 **目隠しの切り替え:** パスワード右横の **「👁️ 表示」/「🙈 隠す」** セルを直接クリックしてください。  \n"
-            "💡 **変更・削除:** 左端のチェックボックスを入れて、下の各ボタンを押してください。"
+            "💡 **目隠しの切り替え:** パスワード右端の **👁️ マーク** を直接押すだけで切り替わります。  \n"
+            "💡 **変更・削除:** 左端のチェックを入れて、最下部のボタンを押してください。"
         )
 
-        event = st.dataframe(
-            df,
-            column_config={
-                "パスワード": st.column_config.TextColumn("パスワード"),
-                # セルを直接クリック可能にするための特殊構成
-                " 目のマーク ": st.column_config.LinkColumn(
-                    " 目のマーク ", display_text=r"^(.*)$"
-                ),
-                "状態": st.column_config.TextColumn("状態"),
-            },
-            hide_index=True,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="multi-row",
+        # 表のヘッダー定義
+        h_col1, h_col2, h_col3, h_col4 = st.columns([1, 3, 5, 3])
+        h_col1.markdown("**選択**")
+        h_col2.markdown("**サービス名**")
+        h_col3.markdown("**パスワード**")
+        h_col4.markdown("**状態 (有効期限)**")
+        st.markdown(
+            "<hr style='margin:0.2rem 0; border-top: 2px solid #555;'>",
+            unsafe_allow_code=True,
         )
 
-        # 「目のマーク」列（左から3番目、インデックス2）が直接クリックされたかを検知して反転
-        last_clicked_cell = event.get("selection", {}).get("cells", [])
-        if last_clicked_cell:
-            cell_row = last_clicked_cell[0][0]
-            cell_col = last_clicked_cell[0][1]
-            if cell_col == 2:
-                if cell_row in st.session_state.visible_rows:
-                    st.session_state.visible_rows.remove(cell_row)
-                else:
-                    st.session_state.visible_rows.add(cell_row)
-                st.rerun()
+        # 各データを画像に準拠したデザインで1行ずつレンダリング
+        for i, item in enumerate(st.session_state.password_list):
+            expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
+            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+            days_left = (expiry_date - today).days
 
-        selected_rows = event.selection.rows
+            if days_left < 0:
+                status = "⚠️ 期限切れ！"
+            elif days_left <= 10:
+                status = f"🚨 あと {days_left} 日"
+            elif days_left <= 30:
+                status = f"⏳ あと {days_left} 日"
+            else:
+                status = f"✅ 安全 ({expiry_str})"
 
-        if selected_rows:
-            selected_services = [
-                df.iloc[r]["サービス名"] for r in selected_rows
-            ]
-            st.write(f"選択中: `{', '.join(selected_services)}`")
+            row_col1, row_col2, row_col3, row_col4 = st.columns([1, 3, 5, 3])
 
+            # 1. 選択チェックボックス (以前の複数選択機能を維持)
+            if i not in st.session_state.selected_rows:
+                st.session_state.selected_rows[i] = False
+            st.session_state.selected_rows[i] = row_col1.checkbox(
+                "選択",
+                value=st.session_state.selected_rows[i],
+                key=f"check_{i}",
+                label_visibility="collapsed",
+            )
+
+            # 2. サービス名
+            row_col2.markdown(
+                f"<div style='padding-top: 0.5rem;'><b>{item['サービス名']}</b></div>",
+                unsafe_allow_code=True,
+            )
+
+            # 3. パスワード (画像と全く同じ、標準の👁️付きトグル入力欄をコピー制限付きで再現)
+            row_col3.text_input(
+                "パスワード",
+                value=item["パスワード"],
+                type="password",
+                key=f"pwd_input_{i}",
+                label_visibility="collapsed",
+                disabled=False,
+            )
+
+            # 4. 状態
+            row_col4.markdown(
+                f"<div style='padding-top: 0.5rem;'>{status}</div>",
+                unsafe_allow_code=True,
+            )
+
+            # 行間の仕切り
+            st.markdown(
+                "<hr style='margin:0.4rem 0; opacity:0.15;'>",
+                unsafe_allow_code=True,
+            )
+
+        # ─── アクションボタンエリア ───
+        # チェックがついている行番号を抽出
+        active_selected_rows = [
+            idx for idx, checked in st.session_state.selected_rows.items() if checked
+        ]
+
+        if active_selected_rows:
+            st.markdown("---")
             col_btn1, col_btn2 = st.columns(2)
 
             # 変更ボタン
             with col_btn1:
-                if len(selected_rows) == 1:
-                    if st.button("✍️ 選択したデータを変更"):
-                        st.session_state.editing_index = selected_rows[0]
+                if len(active_selected_rows) == 1:
+                    if st.button("✍️ 選択したデータを変更", use_container_width=True):
+                        st.session_state.editing_index = active_selected_rows[0]
                         st.rerun()
                 else:
                     st.caption("※「変更」は1つ選択時のみ可")
 
             # 削除ボタン
             with col_btn2:
-                if st.button("🗑️ 選択したデータを削除", type="primary"):
+                if st.button(
+                    "🗑️ 選択したデータを削除", type="primary", use_container_width=True
+                ):
                     new_password_list = [
                         item
-                        for i, item in enumerate(
-                            st.session_state.password_list
-                        )
-                        if i not in selected_rows
+                        for idx, item in enumerate(st.session_state.password_list)
+                        if idx not in active_selected_rows
                     ]
                     st.session_state.password_list = new_password_list
                     save_passwords(new_password_list)
                     st.success("💥 選択されたパスワードを削除しました！")
                     st.session_state.editing_index = None
-                    st.session_state.visible_rows = set()
+                    st.session_state.selected_rows = {}  # 選択を初期化
                     st.rerun()
 
     else:
