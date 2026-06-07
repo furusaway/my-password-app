@@ -104,10 +104,9 @@ if "is_unlocked" not in st.session_state:
 if "editing_index" not in st.session_state:
     st.session_state.editing_index = None
 
-# 個別表示を管理するセット
-if "visible_rows" not in st.session_state:
-    st.session_state.visible_rows = set()
-
+# 削除用チェックボックスの状態管理
+if "selected_rows" not in st.session_state:
+    st.session_state.selected_rows = {}
 
 # アプリ起動時に期限チェック（LINE通知）を実行
 check_and_notify_expiry()
@@ -182,45 +181,7 @@ def list_page():
     st.session_state.password_list = load_passwords()
 
     if st.session_state.password_list:
-        processed_list = []
         today = date.today()
-
-        for i, item in enumerate(st.session_state.password_list):
-            expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
-            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-            days_left = (expiry_date - today).days
-
-            if days_left < 0:
-                status = "⚠️ 期限切れ！"
-            elif days_left <= 10:
-                status = f"🚨 あと {days_left} 日 (10日以内)"
-            elif days_left <= 30:
-                status = f"⏳ あと {days_left} 日"
-            else:
-                status = "✅ 安全（期限内）"
-
-            # 💡 表示フラグがあれば本物、なければ「********」
-            display_password = (
-                item["パスワード"]
-                if i in st.session_state.visible_rows
-                else "********"
-            )
-            # 👁️ 目のアイコン表示（状態に合わせて変更）
-            eye_icon = (
-                "🙈 隠す" if i in st.session_state.visible_rows else "👁️ 表示"
-            )
-
-            processed_list.append(
-                {
-                    "サービス名": item["サービス名"],
-                    "パスワード": display_password,
-                    " 表示/隠す ": eye_icon,  # 💡 パスワードのすぐ横の列
-                    "有効期限": expiry_str,
-                    "状態": status,
-                }
-            )
-
-        df = pd.DataFrame(processed_list)
 
         # ─── ✍️ 編集フォームの表示 ───
         if st.session_state.editing_index is not None:
@@ -266,98 +227,6 @@ def list_page():
 
             st.markdown("---")
 
-        # ─── 一覧データテーブル ───
+        # ─── 🔐 カスタムGrid表示（指示のデザインを完全再現） ───
         st.write(
-            "💡 **データの変更・削除:** 左端にチェックを入れて下のボタンを押してください。  \n"
-            "💡 **目隠しの切り替え:** パスワード横の **「👁️ 表示」** または **「🙈 隠す」** を直接クリックしてください。"
-        )
-
-        # テーブルの設定
-        event = st.dataframe(
-            df,
-            column_config={
-                "パスワード": st.column_config.TextColumn("パスワード"),
-                # 💡 目のマークのセルをクリック可能（LinkColumn）にするトリック
-                " 表示/隠す ": st.column_config.LinkColumn(
-                    " 表示/隠す ", display_text=r"^(.*)$"
-                ),
-                "状態": st.column_config.TextColumn("状態"),
-            },
-            hide_index=True,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="multi-row",
-        )
-
-        # 👁️ セル（目のマーク）がクリックされた時の判定
-        # st.dataframe のクリックイベントから「どの行が踏まれたか」を検出する
-        if (
-            event.get("selection")
-            and hasattr(event["selection"], "rows")
-            and event["selection"].rows
-        ):
-            pass  # 通常のチェックボックス選択時はここでは処理しない
-
-        # 特殊トリック：LinkColumnのクリック（イベントデータ構成の変化）をフックして表示フラグを反転
-        # 選択ではなく、直接「表示/隠す」列が選択されたり変更イベントが入った時のトグル処理
-        last_clicked_cell = event.get("selection", {}).get("cells", [])
-        if last_clicked_cell:
-            cell_row = last_clicked_cell[0][0]
-            cell_col = last_clicked_cell[0][1]
-            # 「表示/隠す」列番（0から数えて サービス名:0, パスワード:1, 表示/隠す:2）
-            if cell_col == 2:
-                if cell_row in st.session_state.visible_rows:
-                    st.session_state.visible_rows.remove(cell_row)
-                else:
-                    st.session_state.visible_rows.add(cell_row)
-                st.rerun()
-
-        selected_rows = event.selection.rows
-
-        if selected_rows:
-            selected_services = [
-                df.iloc[r]["サービス名"] for r in selected_rows
-            ]
-            st.write(f"選択中: `{', '.join(selected_services)}`")
-
-            col_btn1, col_btn2 = st.columns(2)
-
-            # 変更ボタン
-            with col_btn1:
-                if len(selected_rows) == 1:
-                    if st.button("✍️ 選択したデータを変更"):
-                        st.session_state.editing_index = selected_rows[0]
-                        st.rerun()
-                else:
-                    st.caption("※「変更」は1つ選択時のみ可")
-
-            # 削除ボタン
-            with col_btn2:
-                if st.button("🗑️ 選択したデータを削除", type="primary"):
-                    new_password_list = [
-                        item
-                        for i, item in enumerate(
-                            st.session_state.password_list
-                        )
-                        if i not in selected_rows
-                    ]
-                    st.session_state.password_list = new_password_list
-                    save_passwords(new_password_list)
-                    st.success("💥 選択されたパスワードを削除しました！")
-                    st.session_state.editing_index = None
-                    st.session_state.visible_rows = set()
-                    st.rerun()
-
-    else:
-        st.info("まだ登録されたパスワードはありません。")
-
-
-# ─── ページナビゲーションの設定 ───
-pg = st.navigation(
-    [
-        st.Page(register_page, title="パスワード登録", icon="📝"),
-        st.Page(list_page, title="パスワード一覧", icon="📋"),
-    ]
-)
-
-pg.run()
+            "💡 **操作方法:** 各行の左端チェックボックスでデータを選択し、下のボタンで変更
