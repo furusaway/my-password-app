@@ -226,10 +226,10 @@ def list_page():
 
             st.markdown("---")
 
-        # ─── 🔓 画像通りの👁️トグル付きグリッドUI ───
+        # ─── 🔓 画像のUIデザインを再現 ───
         st.write(
-            "💡 **目隠しの切り替え:** パスワード右端の **👁️ マーク** を直接押すだけで切り替わります。  \n"
-            "💡 **変更・削除:** 左端のチェックを入れて、最下部のボタンを押してください。"
+            "💡 **目隠しの切り替え:** 各行のパスワード右端にある **👁️ マーク** を直接クリックしてください。  \n"
+            "💡 **変更・削除:** 左端のチェックボックスを入れて、最下部のボタンを押してください。"
         )
 
         # 表のヘッダー定義
@@ -238,12 +238,14 @@ def list_page():
         h_col2.markdown("**サービス名**")
         h_col3.markdown("**パスワード**")
         h_col4.markdown("**状態 (有効期限)**")
+        
+        # エラー箇所を修正: unsafe_allow_html=True に変更
         st.markdown(
             "<hr style='margin:0.2rem 0; border-top: 2px solid #555;'>",
-            unsafe_allow_code=True,
+            unsafe_allow_html=True,
         )
 
-        # 各データを画像に準拠したデザインで1行ずつレンダリング
+        # 各データを1行ずつレンダリング
         for i, item in enumerate(st.session_state.password_list):
             expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
             expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
@@ -260,7 +262,7 @@ def list_page():
 
             row_col1, row_col2, row_col3, row_col4 = st.columns([1, 3, 5, 3])
 
-            # 1. 選択チェックボックス (以前の複数選択機能を維持)
+            # 1. 選択チェックボックス
             if i not in st.session_state.selected_rows:
                 st.session_state.selected_rows[i] = False
             st.session_state.selected_rows[i] = row_col1.checkbox(
@@ -273,33 +275,31 @@ def list_page():
             # 2. サービス名
             row_col2.markdown(
                 f"<div style='padding-top: 0.5rem;'><b>{item['サービス名']}</b></div>",
-                unsafe_allow_code=True,
+                unsafe_allow_html=True,
             )
 
-            # 3. パスワード (画像と全く同じ、標準の👁️付きトグル入力欄をコピー制限付きで再現)
+            # 3. パスワード (ご提示の画像通り、右端に「👁️」が配置されたインプット欄)
             row_col3.text_input(
                 "パスワード",
                 value=item["パスワード"],
                 type="password",
                 key=f"pwd_input_{i}",
                 label_visibility="collapsed",
-                disabled=False,
             )
 
             # 4. 状態
             row_col4.markdown(
                 f"<div style='padding-top: 0.5rem;'>{status}</div>",
-                unsafe_allow_code=True,
+                unsafe_allow_html=True,
             )
 
-            # 行間の仕切り
+            # 行間の仕切り (エラー箇所を修正: unsafe_allow_html=True)
             st.markdown(
                 "<hr style='margin:0.4rem 0; opacity:0.15;'>",
-                unsafe_allow_code=True,
+                unsafe_allow_html=True,
             )
 
         # ─── アクションボタンエリア ───
-        # チェックがついている行番号を抽出
         active_selected_rows = [
             idx for idx, checked in st.session_state.selected_rows.items() if checked
         ]
@@ -331,7 +331,7 @@ def list_page():
                     save_passwords(new_password_list)
                     st.success("💥 選択されたパスワードを削除しました！")
                     st.session_state.editing_index = None
-                    st.session_state.selected_rows = {}  # 選択を初期化
+                    st.session_state.selected_rows = {}
                     st.rerun()
 
     else:
