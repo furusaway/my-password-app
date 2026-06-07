@@ -121,8 +121,7 @@ def list_page():
         
         st.write("💡 削除したいデータの**左端にチェック**を入れて、下の「選択したデータを削除」ボタンを押してください。")
         
-        # 【新機能】選択（チェックボックス）が可能なテーブルを表示
-        # selection_mode="multi" にすることで複数選択も可能になります
+        # 【修正箇所】selection_mode を "multi-row" に変更
         event = st.dataframe(
             df,
             column_config={
@@ -132,7 +131,7 @@ def list_page():
             hide_index=True,
             use_container_width=True,
             on_select="rerun",
-            selection_mode="multi"
+            selection_mode="multi-row"
         )
         
         # 選択された行のインデックス（番号）を取得
