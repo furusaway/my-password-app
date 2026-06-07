@@ -104,7 +104,7 @@ if "is_unlocked" not in st.session_state:
 if "editing_index" not in st.session_state:
     st.session_state.editing_index = None
 
-# 現在パスワードを表示している行のインデックスを保存するセット
+# 個別表示を管理するセット
 if "visible_rows" not in st.session_state:
     st.session_state.visible_rows = set()
 
@@ -199,17 +199,22 @@ def list_page():
             else:
                 status = "✅ 安全（期限内）"
 
-            # 💡 個別表示が有効な行だけ本物を表示、それ以外は目隠し
+            # 💡 表示フラグがあれば本物、なければ「********」
             display_password = (
                 item["パスワード"]
                 if i in st.session_state.visible_rows
                 else "********"
+            )
+            # 👁️ 目のアイコン表示（状態に合わせて変更）
+            eye_icon = (
+                "🙈 隠す" if i in st.session_state.visible_rows else "👁️ 表示"
             )
 
             processed_list.append(
                 {
                     "サービス名": item["サービス名"],
                     "パスワード": display_password,
+                    " 表示/隠す ": eye_icon,  # 💡 パスワードのすぐ横の列
                     "有効期限": expiry_str,
                     "状態": status,
                 }
@@ -263,13 +268,19 @@ def list_page():
 
         # ─── 一覧データテーブル ───
         st.write(
-            "💡 **データの変更・削除・表示:** 左端のチェックを入れて、下の各ボタンを押してください。"
+            "💡 **データの変更・削除:** 左端にチェックを入れて下のボタンを押してください。  \n"
+            "💡 **目隠しの切り替え:** パスワード横の **「👁️ 表示」** または **「🙈 隠す」** を直接クリックしてください。"
         )
 
+        # テーブルの設定
         event = st.dataframe(
             df,
             column_config={
                 "パスワード": st.column_config.TextColumn("パスワード"),
+                # 💡 目のマークのセルをクリック可能（LinkColumn）にするトリック
+                " 表示/隠す ": st.column_config.LinkColumn(
+                    " 表示/隠す ", display_text=r"^(.*)$"
+                ),
                 "状態": st.column_config.TextColumn("状態"),
             },
             hide_index=True,
@@ -277,6 +288,29 @@ def list_page():
             on_select="rerun",
             selection_mode="multi-row",
         )
+
+        # 👁️ セル（目のマーク）がクリックされた時の判定
+        # st.dataframe のクリックイベントから「どの行が踏まれたか」を検出する
+        if (
+            event.get("selection")
+            and hasattr(event["selection"], "rows")
+            and event["selection"].rows
+        ):
+            pass  # 通常のチェックボックス選択時はここでは処理しない
+
+        # 特殊トリック：LinkColumnのクリック（イベントデータ構成の変化）をフックして表示フラグを反転
+        # 選択ではなく、直接「表示/隠す」列が選択されたり変更イベントが入った時のトグル処理
+        last_clicked_cell = event.get("selection", {}).get("cells", [])
+        if last_clicked_cell:
+            cell_row = last_clicked_cell[0][0]
+            cell_col = last_clicked_cell[0][1]
+            # 「表示/隠す」列番（0から数えて サービス名:0, パスワード:1, 表示/隠す:2）
+            if cell_col == 2:
+                if cell_row in st.session_state.visible_rows:
+                    st.session_state.visible_rows.remove(cell_row)
+                else:
+                    st.session_state.visible_rows.add(cell_row)
+                st.rerun()
 
         selected_rows = event.selection.rows
 
@@ -286,20 +320,10 @@ def list_page():
             ]
             st.write(f"選択中: `{', '.join(selected_services)}`")
 
-            col_btn1, col_btn2, col_btn3 = st.columns(3)
-
-            # 👁️ 【追加】選択した行の目隠しを切り替えるボタン
-            with col_btn1:
-                if st.button("👁️ 選択したパスワードを表示/隠す"):
-                    for r in selected_rows:
-                        if r in st.session_state.visible_rows:
-                            st.session_state.visible_rows.remove(r)
-                        else:
-                            st.session_state.visible_rows.add(r)
-                    st.rerun()
+            col_btn1, col_btn2 = st.columns(2)
 
             # 変更ボタン
-            with col_btn2:
+            with col_btn1:
                 if len(selected_rows) == 1:
                     if st.button("✍️ 選択したデータを変更"):
                         st.session_state.editing_index = selected_rows[0]
@@ -308,7 +332,7 @@ def list_page():
                     st.caption("※「変更」は1つ選択時のみ可")
 
             # 削除ボタン
-            with col_btn3:
+            with col_btn2:
                 if st.button("🗑️ 選択したデータを削除", type="primary"):
                     new_password_list = [
                         item
@@ -321,7 +345,6 @@ def list_page():
                     save_passwords(new_password_list)
                     st.success("💥 選択されたパスワードを削除しました！")
                     st.session_state.editing_index = None
-                    # 削除されたデータの表示フラグもリセット
                     st.session_state.visible_rows = set()
                     st.rerun()
 
