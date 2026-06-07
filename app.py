@@ -14,7 +14,7 @@ st.set_page_config(
 MASTER_PASSWORD = "1234"
 SAVE_FILE = "passwords_data.json"
 
-# LINE Messaging API設定
+# LINE Messaging API設定（取得した値をここに入力してください）
 LINE_CHANNEL_ACCESS_TOKEN = "YOUR_CHANNEL_ACCESS_TOKEN"
 LINE_USER_ID = "YOUR_USER_ID"
 
@@ -104,9 +104,9 @@ if "is_unlocked" not in st.session_state:
 if "editing_index" not in st.session_state:
     st.session_state.editing_index = None
 
-# 削除用チェックボックスの状態管理
-if "selected_rows" not in st.session_state:
-    st.session_state.selected_rows = {}
+# 各行の表示状態を管理するセット
+if "visible_rows" not in st.session_state:
+    st.session_state.visible_rows = set()
 
 # アプリ起動時に期限チェック（LINE通知）を実行
 check_and_notify_expiry()
@@ -181,7 +181,44 @@ def list_page():
     st.session_state.password_list = load_passwords()
 
     if st.session_state.password_list:
+        processed_list = []
         today = date.today()
+
+        for i, item in enumerate(st.session_state.password_list):
+            expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
+            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+            days_left = (expiry_date - today).days
+
+            if days_left < 0:
+                status = "⚠️ 期限切れ！"
+            elif days_left <= 10:
+                status = f"🚨 あと {days_left} 日 (10日以内)"
+            elif days_left <= 30:
+                status = f"⏳ あと {days_left} 日"
+            else:
+                status = "✅ 安全（期限内）"
+
+            # 表示フラグの有無で目隠しを切り替え
+            display_password = (
+                item["パスワード"]
+                if i in st.session_state.visible_rows
+                else "********"
+            )
+            eye_icon = (
+                "🙈 隠す" if i in st.session_state.visible_rows else "👁️ 表示"
+            )
+
+            processed_list.append(
+                {
+                    "サービス名": item["サービス名"],
+                    "パスワード": display_password,
+                    " 目のマーク ": eye_icon,  # パスワードのすぐ右隣に配置
+                    "有効期限": expiry_str,
+                    "状態": status,
+                }
+            )
+
+        df = pd.DataFrame(processed_list)
 
         # ─── ✍️ 編集フォームの表示 ───
         if st.session_state.editing_index is not None:
@@ -227,6 +264,86 @@ def list_page():
 
             st.markdown("---")
 
-        # ─── 🔐 カスタムGrid表示（指示のデザインを完全再現） ───
+        # ─── 一覧データテーブル ───
         st.write(
-            "💡 **操作方法:** 各行の左端チェックボックスでデータを選択し、下のボタンで変更
+            "💡 **目隠しの切り替え:** パスワード右横の **「👁️ 表示」/「🙈 隠す」** セルを直接クリックしてください。  \n"
+            "💡 **変更・削除:** 左端のチェックボックスを入れて、下の各ボタンを押してください。"
+        )
+
+        event = st.dataframe(
+            df,
+            column_config={
+                "パスワード": st.column_config.TextColumn("パスワード"),
+                # セルを直接クリック可能にするための特殊構成
+                " 目のマーク ": st.column_config.LinkColumn(
+                    " 目のマーク ", display_text=r"^(.*)$"
+                ),
+                "状態": st.column_config.TextColumn("状態"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+        )
+
+        # 「目のマーク」列（左から3番目、インデックス2）が直接クリックされたかを検知して反転
+        last_clicked_cell = event.get("selection", {}).get("cells", [])
+        if last_clicked_cell:
+            cell_row = last_clicked_cell[0][0]
+            cell_col = last_clicked_cell[0][1]
+            if cell_col == 2:
+                if cell_row in st.session_state.visible_rows:
+                    st.session_state.visible_rows.remove(cell_row)
+                else:
+                    st.session_state.visible_rows.add(cell_row)
+                st.rerun()
+
+        selected_rows = event.selection.rows
+
+        if selected_rows:
+            selected_services = [
+                df.iloc[r]["サービス名"] for r in selected_rows
+            ]
+            st.write(f"選択中: `{', '.join(selected_services)}`")
+
+            col_btn1, col_btn2 = st.columns(2)
+
+            # 変更ボタン
+            with col_btn1:
+                if len(selected_rows) == 1:
+                    if st.button("✍️ 選択したデータを変更"):
+                        st.session_state.editing_index = selected_rows[0]
+                        st.rerun()
+                else:
+                    st.caption("※「変更」は1つ選択時のみ可")
+
+            # 削除ボタン
+            with col_btn2:
+                if st.button("🗑️ 選択したデータを削除", type="primary"):
+                    new_password_list = [
+                        item
+                        for i, item in enumerate(
+                            st.session_state.password_list
+                        )
+                        if i not in selected_rows
+                    ]
+                    st.session_state.password_list = new_password_list
+                    save_passwords(new_password_list)
+                    st.success("💥 選択されたパスワードを削除しました！")
+                    st.session_state.editing_index = None
+                    st.session_state.visible_rows = set()
+                    st.rerun()
+
+    else:
+        st.info("まだ登録されたパスワードはありません。")
+
+
+# ─── ページナビゲーションの設定 ───
+pg = st.navigation(
+    [
+        st.Page(register_page, title="パスワード登録", icon="📝"),
+        st.Page(list_page, title="パスワード一覧", icon="📋"),
+    ]
+)
+
+pg.run()
