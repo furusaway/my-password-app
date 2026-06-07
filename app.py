@@ -41,7 +41,7 @@ def send_line_notification(message):
         LINE_CHANNEL_ACCESS_TOKEN == "YOUR_CHANNEL_ACCESS_TOKEN"
         or LINE_USER_ID == "YOUR_USER_ID"
     ):
-        return  # 初期設定のままなら送信しない
+        return
 
     url = "https://api.line.me/v2/bot/message/push"
     headers = {
@@ -60,7 +60,6 @@ def send_line_notification(message):
 
 # ─── ⏰ 期限チェック＆LINE通知実行 ───
 def check_and_notify_expiry():
-    # セッション内で1回のみ実行するためのフラグ
     if "has_checked_expiry" not in st.session_state:
         st.session_state.has_checked_expiry = False
 
@@ -76,7 +75,6 @@ def check_and_notify_expiry():
         if expiry_str:
             expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
             days_left = (expiry_date - today).days
-            # 💡 期限切れ、または10日前からのものを対象にする
             if days_left <= 10:
                 if days_left < 0:
                     alert_services.append(
@@ -143,9 +141,7 @@ def register_page():
             st.session_state.password_list.append(new_data)
             save_passwords(st.session_state.password_list)
             st.success(f"🎉 {service_name} のパスワードを保存しました！")
-            st.session_state.has_checked_expiry = (
-                False  # データ追加されたので再チェック可能に
-            )
+            st.session_state.has_checked_expiry = False
         else:
             st.warning("⚠️ サービス名とパスワードの両方を入力してください。")
 
@@ -184,6 +180,9 @@ def list_page():
         processed_list = []
         today = date.today()
 
+        # 🔑 【新機能】パスワードの目隠し切り替え用チェックボックス
+        show_password = st.checkbox("👁️ パスワードを表示する", value=False)
+
         for item in st.session_state.password_list:
             expiry_str = item.get("有効期限", today.strftime("%Y-%m-%d"))
             expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
@@ -198,10 +197,15 @@ def list_page():
             else:
                 status = "✅ 安全（期限内）"
 
+            # 🔑 チェックが入っていない時は「********」にする
+            display_password = (
+                item["パスワード"] if show_password else "********"
+            )
+
             processed_list.append(
                 {
                     "サービス名": item["サービス名"],
-                    "パスワード": item["パスワード"],
+                    "パスワード": display_password,
                     "有効期限": expiry_str,
                     "状態": status,
                 }
@@ -237,7 +241,7 @@ def list_page():
 
             if save_edit:
                 st.session_state.password_list[idx] = {
-                    "サービス名": new_service,
+                    "service_name": new_service,
                     "パスワード": new_password,
                     "有効期限": new_expiry.strftime("%Y-%m-%d"),
                 }
@@ -280,7 +284,6 @@ def list_page():
 
             col_btn1, col_btn2 = st.columns(2)
 
-            # 変更ボタン（1つのデータが選択されている時だけ有効）
             with col_btn1:
                 if len(selected_rows) == 1:
                     if st.button("✍️ 選択したデータを変更"):
@@ -289,7 +292,6 @@ def list_page():
                 else:
                     st.caption("※「変更」はデータを1つだけ選んだ時に押せます")
 
-            # 削除ボタン
             with col_btn2:
                 if st.button("🗑️ 選択したデータを削除", type="primary"):
                     new_password_list = [
